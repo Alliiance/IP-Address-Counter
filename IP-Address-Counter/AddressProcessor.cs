@@ -13,12 +13,12 @@
             _outputFilePath = "unique_ips.txt";
         }
 
-        public void Process()
+        public async Task Process()
         {
             Directory.CreateDirectory(_tempDirectory);
 
-            // Split the file into parts and sort them
-            SplitAndSortFile();
+            //Split the file into parts and sort them in parallel
+            await SplitAndSortFileAsync();
 
             // Merge the sorted parts
             MergeSortedFiles();
@@ -29,21 +29,28 @@
             return File.ReadLines(_outputFilePath).Count();
         }
 
-        private void SplitAndSortFile()
+        private async Task SplitAndSortFileAsync()
         {
+            const int linesPerFile = 1000000; // 1 million lines per part
+            var tasks = new List<Task>();
+
             using (StreamReader reader = new StreamReader(_inputFilePath))
             {
                 string line;
                 List<string> buffer = new List<string>();
                 int fileIndex = 0;
 
-                while ((line = reader.ReadLine()) != null)
+                while ((line = await reader.ReadLineAsync()) != null)
                 {
                     buffer.Add(line);
-                    if (buffer.Count >= 1000000) // 1 million lines per part
+                    if (buffer.Count >= linesPerFile)
                     {
-                        buffer.Sort();
-                        WriteSortedFile(fileIndex++, buffer);
+                        var localBuffer = new List<string>(buffer);
+                        tasks.Add(Task.Run(() =>
+                        {
+                            localBuffer.Sort();
+                            WriteSortedFile(fileIndex++, localBuffer);
+                        }));
                         buffer.Clear();
                     }
                 }
@@ -55,6 +62,8 @@
                     WriteSortedFile(fileIndex, buffer);
                 }
             }
+
+            await Task.WhenAll(tasks);
         }
 
         private void WriteSortedFile(int fileIndex, List<string> lines)
@@ -70,6 +79,8 @@
             {
                 List<StreamReader> readers = files.Select(file => new StreamReader(file)).ToList();
                 bool allFilesEnded = false;
+
+                string lastWrittenLine = null;
 
                 while (!allFilesEnded)
                 {
@@ -88,9 +99,10 @@
                         }
                     }
 
-                    if (minLine != null)
+                    if (minLine != null && minLine != lastWrittenLine)
                     {
                         writer.WriteLine(minLine);
+                        lastWrittenLine = minLine;
                     }
                     else
                     {
