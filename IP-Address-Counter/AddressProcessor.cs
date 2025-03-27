@@ -17,7 +17,7 @@
         {
             Directory.CreateDirectory(_tempDirectory);
 
-            //Split the file into parts and sort them in parallel
+            // Split the file into parts and sort them in parallel
             await SplitAndSortFileAsync();
 
             // Merge the sorted parts
@@ -78,36 +78,54 @@
             using (StreamWriter writer = new StreamWriter(_outputFilePath))
             {
                 List<StreamReader> readers = files.Select(file => new StreamReader(file)).ToList();
-                bool allFilesEnded = false;
+                var sortedDict = new SortedDictionary<string, Queue<int>>();
+
+                // Initialize dictionary with the first values from each file
+                for (int i = 0; i < readers.Count; i++)
+                {
+                    if (!readers[i].EndOfStream)
+                    {
+                        string line = readers[i].ReadLine();
+                        if (!sortedDict.ContainsKey(line))
+                            sortedDict[line] = new Queue<int>();
+
+                        sortedDict[line].Enqueue(i);
+                    }
+                }
 
                 string lastWrittenLine = null;
 
-                while (!allFilesEnded)
+                while (sortedDict.Count > 0)
                 {
-                    string minLine = null;
-                    int minFileIndex = -1;
+                    var minKey = sortedDict.Keys.First(); // Get the smallest key
+                    int fileIndex = sortedDict[minKey].Dequeue(); // Retrieve file index
 
-                    for (int i = 0; i < readers.Count; i++)
+                    // Write only unique values to the output file
+                    if (minKey != lastWrittenLine)
                     {
-                        if (readers[i].EndOfStream) continue;
-
-                        string line = readers[i].ReadLine();
-                        if (minLine == null || string.Compare(line, minLine) < 0)
-                        {
-                            minLine = line;
-                            minFileIndex = i;
-                        }
+                        writer.WriteLine(minKey);
+                        lastWrittenLine = minKey;
                     }
 
-                    if (minLine != null && minLine != lastWrittenLine)
+                    // Remove key if no more associated files
+                    if (sortedDict[minKey].Count == 0)
+                        sortedDict.Remove(minKey);
+
+                    // Read the next line from the same file
+                    if (!readers[fileIndex].EndOfStream)
                     {
-                        writer.WriteLine(minLine);
-                        lastWrittenLine = minLine;
+                        string newLine = readers[fileIndex].ReadLine();
+                        if (!sortedDict.ContainsKey(newLine))
+                            sortedDict[newLine] = new Queue<int>();
+
+                        sortedDict[newLine].Enqueue(fileIndex);
                     }
-                    else
-                    {
-                        allFilesEnded = true;
-                    }
+                }
+
+                // Close all file readers
+                foreach (var reader in readers)
+                {
+                    reader.Close();
                 }
             }
         }
